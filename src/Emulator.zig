@@ -25,6 +25,10 @@ memory: Memory,
 keypad: Keypad,
 video: Video,
 
+// Timers.
+delay_timer: u8,
+sound_timer: u8,
+
 // Meta.
 version: Version,
 debug: bool,
@@ -49,6 +53,8 @@ pub fn init(
         .memory = memory,
         .keypad = keypad,
         .video = video,
+        .delay_timer = 0,
+        .sound_timer = 0,
         .version = config.version,
         .debug = config.debug,
     };
@@ -79,6 +85,9 @@ const Instruction = union(enum) {
     },
     add_ir: u4,
     clear_screen,
+    set_delay_timer_to_x: u4,
+    set_x_to_delay_timer: u4,
+    set_sound_timer_to_x: u4,
     draw: struct {
         register_x: u4,
         register_y: u4,
@@ -231,6 +240,9 @@ pub fn decode(opcode: u16) EmulatorError!Instruction {
         0xF => {
             return switch (nn) {
                 0x1E => .{ .add_ir = x },
+                0x07 => .{ .set_x_to_delay_timer = x },
+                0x15 => .{ .set_delay_timer_to_x = x },
+                0x18 => .{ .set_sound_timer_to_x = x },
                 else => EmulatorError.InvalidOpcode,
             };
         },
@@ -335,6 +347,15 @@ fn execute(self: *Self, instruction: Instruction) !void {
         },
         .set_ir => |ir| {
             self.ir = ir;
+        },
+        .set_delay_timer_to_x => |x| {
+            self.delay_timer = self.vr[x];
+        },
+        .set_x_to_delay_timer => |x| {
+            self.vr[x] = self.delay_timer;
+        },
+        .set_sound_timer_to_x => |x| {
+            self.sound_timer = self.vr[x];
         },
         .skip_eq => |ix| {
             self.skip_if(self.vr[ix.register] == ix.value);
