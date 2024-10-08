@@ -1,28 +1,32 @@
 const std = @import("std");
 const sdl = @import("zsdl2");
 
-const Interpr = @import("./interpr.zig");
+const Emulator = @import("./Emulator.zig");
+const memory = @import("./memory.zig");
+const Video = @import("./driver/Video.zig");
 
 pub fn main() !void {
-    // var interpr = try Interpr.load("./data/logo.ch8");
-    // while (true) {
-    //     try interpr.tick();
-    //     std.time.sleep(250 * std.time.ns_per_ms);
-    // }
-
     try sdl.init(.{
         .audio = true,
         .video = true,
     });
     defer sdl.quit();
 
-    const window = try sdl.Window.create(
-        "zig-gamedev-window",
-        sdl.Window.pos_undefined,
-        sdl.Window.pos_undefined,
-        600,
-        600,
-        .{ .opengl = true, .allow_highdpi = true },
+    var video = try Video.init();
+    defer video.deinit();
+    var emulator = Emulator.init(
+        try memory.load_file("./data/logo.ch8"),
+        &video,
     );
-    defer window.destroy();
+
+    loop: while (true) {
+        var event: sdl.Event = undefined;
+        while (sdl.pollEvent(&event)) {
+            if (event.type == .quit) {
+                break :loop;
+            }
+        }
+        try emulator.tick();
+        sdl.delay(17);
+    }
 }
