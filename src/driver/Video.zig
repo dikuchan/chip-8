@@ -3,7 +3,7 @@ const sdl = @import("zsdl2");
 pub const WIDTH = 64;
 pub const HEIGHT = 32;
 
-const SCALE = 10;
+const SCALE = 20;
 
 const BLACK_COLOR = sdl.Color{
     .r = 0x00,
@@ -23,6 +23,7 @@ const Self = @This();
 screen: [WIDTH][HEIGHT]u1,
 window: *sdl.Window,
 renderer: *sdl.Renderer,
+should_render: bool,
 
 pub fn init() !Self {
     const window = try sdl.Window.create(
@@ -46,6 +47,7 @@ pub fn init() !Self {
         .screen = screen,
         .window = window,
         .renderer = renderer,
+        .should_render = false,
     };
     try video.render();
     return video;
@@ -57,10 +59,12 @@ pub fn clear_screen(self: *Self) void {
             self.screen[x][y] = 0;
         }
     }
+    self.should_render = true;
 }
 
 pub fn set_pixel(self: *Self, x: usize, y: usize, value: u1) void {
     self.screen[x][y] = value;
+    self.should_render = true;
 }
 
 pub fn get_pixel(self: *Self, x: usize, y: usize) u1 {
@@ -68,6 +72,9 @@ pub fn get_pixel(self: *Self, x: usize, y: usize) u1 {
 }
 
 pub fn render(self: *Self) !void {
+    if (!self.should_render) {
+        return;
+    }
     for (0..WIDTH) |x| {
         for (0..HEIGHT) |y| {
             if (self.screen[x][y] == 0) {
@@ -84,6 +91,7 @@ pub fn render(self: *Self) !void {
         }
     }
     self.renderer.present();
+    self.should_render = false;
 }
 
 pub fn deinit(self: *Self) void {

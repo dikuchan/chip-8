@@ -1,5 +1,7 @@
 const std = @import("std");
+const rand = std.crypto.random;
 
+const Keypad = @import("./driver/Keypad.zig");
 const Memory = @import("./memory.zig").Memory;
 const Stack = @import("./stack.zig").Stack;
 const Version = @import("./version.zig").Version;
@@ -20,6 +22,7 @@ stack: Stack(16),
 memory: Memory,
 
 // Drivers.
+keypad: Keypad,
 video: Video,
 
 // Meta.
@@ -31,7 +34,12 @@ const Config = struct {
     debug: bool,
 };
 
-pub fn init(memory: Memory, video: Video, config: Config) Self {
+pub fn init(
+    memory: Memory,
+    keypad: Keypad,
+    video: Video,
+    config: Config,
+) Self {
     return .{
         // TODO: use memory size.
         .pc = 0x200,
@@ -39,6 +47,7 @@ pub fn init(memory: Memory, video: Video, config: Config) Self {
         .vr = [_]u8{0} ** 16,
         .stack = Stack(16).init(),
         .memory = memory,
+        .keypad = keypad,
         .video = video,
         .version = config.version,
         .debug = config.debug,
@@ -68,6 +77,7 @@ const Instruction = union(enum) {
         register: u4,
         value: u8,
     },
+    add_ir: u4,
     clear_screen,
     draw: struct {
         register_x: u4,
@@ -75,6 +85,10 @@ const Instruction = union(enum) {
         n: u4,
     },
     jump: u16,
+    jump_offset: struct {
+        register_x: u4,
+        value: u12,
+    },
     operation_set: Operation,
     operation_or: Operation,
     operation_and: Operation,
@@ -84,6 +98,10 @@ const Instruction = union(enum) {
     operation_sub_yx: Operation,
     operation_shr: Operation,
     operation_shl: Operation,
+    random: struct {
+        register_x: u4,
+        value: u8,
+    },
     set: struct {
         register: u4,
         value: u8,
@@ -105,6 +123,8 @@ const Instruction = union(enum) {
         register_x: u4,
         register_y: u4,
     },
+    skip_if_key_pressed: u4,
+    skip_if_key_not_pressed: u4,
     subroutine_call: u16,
     subroutine_return,
 };
@@ -182,6 +202,18 @@ pub fn decode(opcode: u16) EmulatorError!Instruction {
             },
         },
         0xA => .{ .set_ir = nnn },
+        0xB => .{
+            .jump_offset = .{
+                .register_x = x,
+                .value = nnn,
+            },
+        },
+        0xC => .{
+            .random = .{
+                .register_x = x,
+                .value = nn,
+            },
+        },
         0xD => .{
             .draw = .{
                 .register_x = x,
@@ -189,7 +221,19 @@ pub fn decode(opcode: u16) EmulatorError!Instruction {
                 .n = n,
             },
         },
-        else => EmulatorError.InvalidOpcode,
+        0xE => {
+            return switch (nn) {
+                0x9E => .{ .skip_if_key_pressed = x },
+                0xA1 => .{ .skip_if_key_not_pressed = x },
+                else => EmulatorError.InvalidOpcode,
+            };
+        },
+        0xF => {
+            return switch (nn) {
+                0x1E => .{ .add_ir = x },
+                else => EmulatorError.InvalidOpcode,
+            };
+        },
     };
 }
 
@@ -197,6 +241,15 @@ fn execute(self: *Self, instruction: Instruction) !void {
     switch (instruction) {
         .add => |ix| {
             self.vr[ix.register] +%= ix.value;
+        },
+        .add_ir => |x| {
+            if (self.version == Version.COSMAC_VIP) {
+                self.ir +%= self.vr[x];
+            } else {
+                const r = @addWithOverflow(self.ir, self.vr[x]);
+                self.ir += r[0];
+                self.vr[0x0F] = r[1];
+            }
         },
         .clear_screen => {
             self.video.clear_screen();
@@ -223,6 +276,13 @@ fn execute(self: *Self, instruction: Instruction) !void {
         },
         .jump => |pc| {
             self.pc = pc;
+        },
+        .jump_offset => |ix| {
+            if (self.version == Version.COSMAC_VIP) {
+                self.pc = ix.value + self.vr[0];
+            } else {
+                self.pc = ix.value + self.vr[ix.register_x];
+            }
         },
         .operation_set => |ix| {
             self.vr[ix.register_x] = self.vr[ix.register_y];
@@ -267,6 +327,9 @@ fn execute(self: *Self, instruction: Instruction) !void {
             self.vr[0x0F] = (self.vr[ix.register_x] & 0x80) >> 0x07;
             self.vr[ix.register_x] <<= 1;
         },
+        .random => |ix| {
+            self.vr[ix.register_x] = rand.int(u8) & ix.value;
+        },
         .set => |ix| {
             self.vr[ix.register] = ix.value;
         },
@@ -284,6 +347,14 @@ fn execute(self: *Self, instruction: Instruction) !void {
         },
         .skip_register_ne => |ix| {
             self.skip_if(self.vr[ix.register_x] != self.vr[ix.register_y]);
+        },
+        .skip_if_key_pressed => |x| {
+            const keypad = try self.keypad.poll();
+            self.skip_if(keypad[self.vr[x]]);
+        },
+        .skip_if_key_not_pressed => |x| {
+            const keypad = try self.keypad.poll();
+            self.skip_if(!keypad[self.vr[x]]);
         },
         .subroutine_call => |pc| {
             try self.stack.push(self.pc);

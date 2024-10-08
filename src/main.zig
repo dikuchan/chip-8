@@ -3,6 +3,7 @@ const sdl = @import("zsdl2");
 
 const Cli = @import("./cli.zig").Cli;
 const Emulator = @import("./Emulator.zig");
+const Keypad = @import("./driver/Keypad.zig");
 const memory = @import("./memory.zig");
 const Version = @import("./version.zig").Version;
 const Video = @import("./driver/Video.zig");
@@ -21,6 +22,7 @@ pub fn main() !void {
     });
     defer sdl.quit();
 
+    var keypad = Keypad.init();
     var video = try Video.init();
     defer video.deinit();
 
@@ -31,6 +33,7 @@ pub fn main() !void {
 
     var emulator = Emulator.init(
         try memory.load_file(cli.file),
+        keypad,
         video,
         .{
             .version = cli.version,
@@ -39,12 +42,14 @@ pub fn main() !void {
     );
 
     loop: while (true) {
-        var event: sdl.Event = undefined;
-        while (sdl.pollEvent(&event)) {
-            if (event.type == .quit) {
+        const keystate = keypad.poll() catch |err| {
+            if (err == Keypad.KeypadError.quit) {
+                std.log.info("exiting", .{});
                 break :loop;
             }
-        }
+            return err;
+        };
+        _ = keystate;
         try emulator.tick();
         sdl.delay(17);
     }
