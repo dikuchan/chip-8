@@ -3,19 +3,17 @@ const sdl = @import("zsdl2");
 
 const Self = @This();
 
+pub const Keypad = [16]bool;
+
 pub const KeypadError = error{
-    quit,
+    Quit,
 };
 
-pub fn init() Self {
-    return .{};
-}
-
-pub fn poll(_: *Self) ![16]bool {
+pub fn poll() !Keypad {
     var event: sdl.Event = undefined;
     while (sdl.pollEvent(&event)) {
         if (event.type == .quit) {
-            return KeypadError.quit;
+            return KeypadError.Quit;
         }
     }
 
