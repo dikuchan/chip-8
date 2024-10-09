@@ -4,6 +4,7 @@ const sdl = @import("zsdl2");
 const Counter = @import("../core/Counter.zig");
 const Keypad = @import("../core/Keypad.zig");
 const Screen = @import("../core/Screen.zig");
+const Sound = @import("../core/Sound.zig");
 
 const Event = Keypad.Event;
 const Key = Keypad.Key;
@@ -151,12 +152,57 @@ const WHITE_COLOR = sdl.Color{
     .a = 0x00,
 };
 
+const SoundBackend = struct {
+    device_id: u32,
+
+    fn init() SoundBackend {
+        const desired_audio_spec = sdl.AudioSpec{
+            .format = sdl.AUDIO_U16,
+            .freq = 44100,
+            .channels = 1,
+            .samples = 128,
+            .callback = fillAudio,
+        };
+        var obtained_audio_spec: sdl.AudioSpec = undefined;
+        const audio_device_id = sdl.openAudioDevice(
+            null,
+            false,
+            &desired_audio_spec,
+            &obtained_audio_spec,
+            0,
+        );
+        return .{
+            .device_id = audio_device_id,
+        };
+    }
+
+    // TODO: define sound.
+    fn fillAudio(_: ?*anyopaque, _: [*c]u8, _: c_int) callconv(.C) void {
+        return;
+    }
+
+    fn pause(ptr: *anyopaque) !void {
+        const self: *SoundBackend = @ptrCast(@alignCast(ptr));
+        sdl.pauseAudioDevice(self.device_id, true);
+    }
+
+    fn unpause(ptr: *anyopaque) !void {
+        const self: *SoundBackend = @ptrCast(@alignCast(ptr));
+        sdl.pauseAudioDevice(self.device_id, false);
+    }
+
+    fn deinit(self: SoundBackend) void {
+        sdl.clearQueuedAudio(self.device_id);
+    }
+};
+
 pub const Backend = struct {
     const Self = @This();
 
     counter_backend: CounterBackend,
     keypad_backend: KeypadBackend,
     screen_backend: ScreenBackend,
+    sound_backend: SoundBackend,
 
     pub fn init(w: usize, h: usize, scale: u8) anyerror!Self {
         try sdl.init(.{
@@ -167,6 +213,7 @@ pub const Backend = struct {
             .counter_backend = CounterBackend.init(),
             .keypad_backend = KeypadBackend.init(),
             .screen_backend = try ScreenBackend.init(w, h, scale),
+            .sound_backend = SoundBackend.init(),
         };
     }
 
@@ -194,8 +241,17 @@ pub const Backend = struct {
         };
     }
 
+    pub fn sound(self: *Backend) Sound {
+        return .{
+            .ptr = &self.sound_backend,
+            .pauseFn = SoundBackend.pause,
+            .unpauseFn = SoundBackend.unpause,
+        };
+    }
+
     pub fn deinit(self: *Self) void {
-        self.screen.deinit();
+        self.sound_backend.deinit();
+        self.screen_backend.deinit();
         sdl.quit();
     }
 };

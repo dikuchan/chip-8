@@ -3,6 +3,7 @@ const rand = std.crypto.random;
 
 const Keypad = @import("./Keypad.zig");
 const Screen = @import("./Screen.zig");
+const Sound = @import("./Sound.zig");
 const Stack = @import("./stack.zig").Stack;
 const Version = @import("./version.zig").Version;
 
@@ -370,6 +371,14 @@ fn execute_FX65(self: *Self, register_x: u4) void {
 fn skipIf(self: *Self, condition: bool) void {
     if (condition) {
         self.pc += 2;
+    }
+}
+
+pub fn beep(self: *Self, sound: Sound) !void {
+    if (self.sound_timer > 0) {
+        try sound.unpause();
+    } else {
+        try sound.pause();
     }
 }
 

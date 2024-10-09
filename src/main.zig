@@ -8,6 +8,7 @@ const Emulator = @import("./core/Emulator.zig");
 const Keypad = @import("./core/Keypad.zig");
 const memory = @import("./core/memory.zig");
 const Screen = @import("./core/Screen.zig");
+const Sound = @import("./core/Sound.zig");
 
 const Backend = @import("./backend/sdl.zig").Backend;
 
@@ -28,7 +29,6 @@ pub fn main() !void {
         std.log.debug("debug mode is on", .{});
     }
 
-    // TODO: add audio.
     var backend = try Backend.init(
         Emulator.SCREEN_WIDTH,
         Emulator.SCREEN_HEIGHT,
@@ -48,12 +48,13 @@ pub fn main() !void {
         backend.counter(),
         backend.keypad(),
         backend.screen(),
+        backend.sound(),
     ) catch |err| {
         std.log.err("execution error: {any}", .{err});
     };
 }
 
-fn runLoop(e: *Emulator, counter: Counter, keypad: Keypad, screen: Screen) !void {
+fn runLoop(e: *Emulator, counter: Counter, keypad: Keypad, screen: Screen, sound: Sound) !void {
     while (true) {
         counter.reset();
         try screen.clear();
@@ -74,6 +75,8 @@ fn runLoop(e: *Emulator, counter: Counter, keypad: Keypad, screen: Screen) !void
 
         try e.draw(screen);
         try screen.render();
+
+        try e.beep(sound);
 
         const elapsed = counter.read();
         if (elapsed < NS_PER_FRAME) {

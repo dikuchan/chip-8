@@ -2,7 +2,7 @@
 
 ### TODO
 
-- [ ] Add audio
+- [x] Add audio
 - [ ] Add tests
 - [ ] Debug mode
 - [ ] More logs
