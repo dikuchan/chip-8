@@ -1,5 +1,9 @@
 # CHIP-8
 
+Trying out the Zig language.
+
+![See screenshots in the data directory](data/images/screenshot.png)
+
 ### TODO
 
 - [x] Add audio
