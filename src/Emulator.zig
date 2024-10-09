@@ -1,11 +1,19 @@
 const std = @import("std");
 const rand = std.crypto.random;
 
-const Keypad = @import("./driver/keypad.zig").Keypad;
 const Memory = @import("./memory.zig").Memory;
 const Stack = @import("./stack.zig").Stack;
 const Version = @import("./version.zig").Version;
-const Video = @import("./driver/Video.zig");
+
+const Renderer = @import("./backend/Renderer.zig");
+
+const PROGRAM_OFFSET = @import("./memory.zig").PROGRAM_OFFSET;
+const FONT_OFFSET = @import("./memory.zig").FONT_OFFSET;
+
+pub const MEMORY_SIZE = 4096;
+pub const KEYPAD_SIZE = 16;
+pub const SCREEN_WIDTH = 64;
+pub const SCREEN_HEIGHT = 32;
 
 const logger = std.log.scoped(.emulator);
 
@@ -17,54 +25,59 @@ pub const EmulatorError = error{
     RenderingFailed,
 };
 
+const Config = struct {
+    version: Version,
+    debug: bool,
+};
+
 const Self = @This();
 
 pc: u16,
 ir: u16,
 vr: [16]u8,
 stack: Stack(16),
-memory: Memory,
 
-// Drivers.
-video: Video,
+memory: [MEMORY_SIZE]u8,
+screen: [SCREEN_WIDTH][SCREEN_HEIGHT]u1,
+keypad: [KEYPAD_SIZE]bool,
 
-// Timers.
 delay_timer: u8,
 sound_timer: u8,
 
-// Meta.
-version: Version,
-debug: bool,
+config: Config,
 
-const Config = struct {
-    version: Version,
-    debug: bool,
-};
-
-pub fn init(
-    memory: Memory,
-    video: Video,
-    config: Config,
-) Self {
+pub fn init(memory: Memory, config: Config) Self {
+    var screen: [SCREEN_WIDTH][SCREEN_HEIGHT]u1 = undefined;
+    for (0..SCREEN_WIDTH) |i| {
+        screen[i] = [_]u1{0} ** SCREEN_HEIGHT;
+    }
     return .{
-        // TODO: use constant.
-        .pc = 0x200,
+        .pc = PROGRAM_OFFSET,
         .ir = 0,
         .vr = [_]u8{0} ** 16,
         .stack = Stack(16).init(),
         .memory = memory,
-        .video = video,
+        .screen = screen,
+        .keypad = [_]bool{false} ** KEYPAD_SIZE,
         .delay_timer = 0,
         .sound_timer = 0,
-        .version = config.version,
-        .debug = config.debug,
+        .config = config,
     };
 }
 
-pub fn tick(self: *Self, keypad: Keypad) !void {
+pub fn tick(self: *Self) EmulatorError!void {
     const opcode = self.fetch();
     logger.debug("fetched opcode: {X:0>4}", .{opcode});
-    try self.execute(opcode, keypad);
+    try self.execute(opcode);
+}
+
+pub fn tick_timers(self: *Self) void {
+    if (self.delay_timer > 0) {
+        self.delay_timer -= 1;
+    }
+    if (self.sound_timer > 0) {
+        self.sound_timer -= 1;
+    }
 }
 
 fn fetch(self: *Self) u16 {
@@ -73,7 +86,7 @@ fn fetch(self: *Self) u16 {
     return opcode;
 }
 
-pub fn execute(self: *Self, opcode: u16, keypad: Keypad) EmulatorError!void {
+fn execute(self: *Self, opcode: u16) EmulatorError!void {
     const c: u4 = @intCast(opcode >> 0x0C);
     const x: u4 = @intCast((opcode & 0x0F00) >> 0x08);
     const y: u4 = @intCast((opcode & 0x00F0) >> 0x04);
@@ -117,24 +130,26 @@ pub fn execute(self: *Self, opcode: u16, keypad: Keypad) EmulatorError!void {
         0xD => self.execute_DXYN(x, y, n),
         0xE => {
             switch (nn) {
-                0x9E => try self.execute_EX9E(keypad, x),
-                0xA1 => try self.execute_EXA1(keypad, x),
+                0x9E => try self.execute_EX9E(x),
+                0xA1 => try self.execute_EXA1(x),
                 else => return EmulatorError.InvalidInstruction,
             }
         },
         0xF => {
             switch (nn) {
-                0x1E => self.execute_FX1E(x),
                 0x07 => self.execute_FX07(x),
+                0x0A => self.execute_FX0A(x),
                 0x15 => self.execute_FX15(x),
                 0x18 => self.execute_FX18(x),
+                0x1E => self.execute_FX1E(x),
+                0x29 => self.execute_FX29(x),
+                0x33 => self.execute_FX33(x),
+                0x55 => self.execute_FX55(x),
+                0x65 => self.execute_FX65(x),
                 else => return EmulatorError.InvalidInstruction,
             }
         },
     }
-    self.video.render() catch {
-        return EmulatorError.RenderingFailed;
-    };
 }
 
 fn execute_0NNN(_: *Self) EmulatorError!void {
@@ -142,7 +157,11 @@ fn execute_0NNN(_: *Self) EmulatorError!void {
 }
 
 fn execute_00E0(self: *Self) void {
-    self.video.clear_screen();
+    for (0..SCREEN_WIDTH) |x| {
+        for (0..SCREEN_HEIGHT) |y| {
+            self.screen[x][y] = 0;
+        }
+    }
 }
 
 fn execute_1NNN(self: *Self, pc: u16) void {
@@ -212,7 +231,7 @@ fn execute_8XY5(self: *Self, register_x: u4, register_y: u4) void {
 }
 
 fn execute_8XY6(self: *Self, register_x: u4, register_y: u4) void {
-    if (self.version == Version.COSMAC_VIP) {
+    if (self.config.version == Version.COSMAC_VIP) {
         self.vr[register_x] = self.vr[register_y];
     }
     self.vr[0x0F] = self.vr[register_x] & 0x01;
@@ -227,7 +246,7 @@ fn execute_8XY7(self: *Self, register_x: u4, register_y: u4) void {
 }
 
 fn execute_8XYE(self: *Self, register_x: u4, register_y: u4) void {
-    if (self.version == Version.COSMAC_VIP) {
+    if (self.config.version == Version.COSMAC_VIP) {
         self.vr[register_x] = self.vr[register_y];
     }
     self.vr[0x0F] = (self.vr[register_x] & 0x80) >> 0x07;
@@ -243,7 +262,7 @@ fn execute_ANNN(self: *Self, value: u12) void {
 }
 
 fn execute_BNNN(self: *Self, register_x: u4, value: u12) void {
-    if (self.version == Version.COSMAC_VIP) {
+    if (self.config.version == Version.COSMAC_VIP) {
         self.pc = value + self.vr[0];
     } else {
         self.pc = value + self.vr[register_x];
@@ -257,44 +276,47 @@ fn execute_CXNN(self: *Self, register_x: u4, value: u8) void {
 fn execute_DXYN(self: *Self, register_x: u4, register_y: u4, value: u4) void {
     self.vr[0x0F] = 0;
     for (0..value) |n| {
-        const y = (self.vr[register_y] + n) % Video.HEIGHT;
+        const y = (self.vr[register_y] + n) % SCREEN_HEIGHT;
         const pixels = self.memory[self.ir + n];
         for (0..8) |i| {
             const pixel: u1 = @intCast(pixels >> @intCast(0x07 - i) & 0x01);
-            const x = (self.vr[register_x] + i) % Video.WIDTH;
+            const x = (self.vr[register_x] + i) % SCREEN_WIDTH;
             // TODO: use XOR.
             if (pixel > 0) {
-                if (self.video.get_pixel(x, y) > 0) {
-                    self.video.set_pixel(x, y, 0);
+                if (self.screen[x][y] > 0) {
+                    self.screen[x][y] = 0;
                     self.vr[0x0F] = 1;
                 } else {
-                    self.video.set_pixel(x, y, 1);
+                    self.screen[x][y] = 1;
                 }
             }
         }
     }
 }
 
-fn execute_EX9E(self: *Self, keypad: Keypad, register_x: u4) !void {
-    self.skip_if(keypad[self.vr[register_x]]);
+fn execute_EX9E(self: *Self, register_x: u4) !void {
+    self.skip_if(self.keypad[self.vr[register_x]]);
 }
 
-fn execute_EXA1(self: *Self, keypad: Keypad, register_x: u4) !void {
-    self.skip_if(!keypad[self.vr[register_x]]);
-}
-
-fn execute_FX1E(self: *Self, register_x: u4) void {
-    if (self.version == Version.COSMAC_VIP) {
-        self.ir +%= self.vr[register_x];
-    } else {
-        const r = @addWithOverflow(self.ir, self.vr[register_x]);
-        self.ir += r[0];
-        self.vr[0x0F] = r[1];
-    }
+fn execute_EXA1(self: *Self, register_x: u4) !void {
+    self.skip_if(!self.keypad[self.vr[register_x]]);
 }
 
 fn execute_FX07(self: *Self, register_x: u4) void {
     self.vr[register_x] = self.delay_timer;
+}
+
+fn execute_FX0A(self: *Self, register_x: u4) void {
+    var value: ?u8 = null;
+    for (self.keypad, 0..) |key, i| {
+        if (key) {
+            value = @intCast(i);
+            break;
+        }
+    }
+    if (value) |v| {
+        self.vr[register_x] = v;
+    }
 }
 
 fn execute_FX15(self: *Self, register_x: u4) void {
@@ -305,8 +327,67 @@ fn execute_FX18(self: *Self, register_x: u4) void {
     self.sound_timer = self.vr[register_x];
 }
 
+fn execute_FX1E(self: *Self, register_x: u4) void {
+    if (self.config.version == Version.COSMAC_VIP) {
+        self.ir +%= self.vr[register_x];
+    } else {
+        const r = @addWithOverflow(self.ir, self.vr[register_x]);
+        self.ir += r[0];
+        self.vr[0x0F] = r[1];
+    }
+}
+
+fn execute_FX29(self: *Self, register_x: u4) void {
+    self.ir = FONT_OFFSET + (5 * self.vr[register_x]);
+}
+
+fn execute_FX33(self: *Self, register_x: u4) void {
+    self.memory[self.ir] = self.vr[register_x] / 100;
+    self.memory[self.ir + 1] = (self.vr[register_x] % 100) / 10;
+    self.memory[self.ir + 2] = self.vr[register_x] % 10;
+}
+
+fn execute_FX55(self: *Self, register_x: u4) void {
+    for (0..register_x + 1) |i| {
+        self.memory[self.ir + i] = self.vr[i];
+        if (self.config.version == Version.COSMAC_VIP) {
+            self.ir += 1;
+        }
+    }
+}
+
+fn execute_FX65(self: *Self, register_x: u4) void {
+    for (0..register_x + 1) |i| {
+        self.vr[i] = self.memory[self.ir + i];
+        if (self.config.version == Version.COSMAC_VIP) {
+            self.ir += 1;
+        }
+    }
+}
+
 fn skip_if(self: *Self, condition: bool) void {
     if (condition) {
         self.pc += 2;
     }
+}
+
+pub fn press_key(self: *Self, key: u4) void {
+    self.keypad[key] = true;
+}
+
+pub fn release_key(self: *Self, key: u4) void {
+    self.keypad[key] = false;
+}
+
+pub fn display(self: *Self, renderer: Renderer) !void {
+    for (0..SCREEN_WIDTH) |x| {
+        for (0..SCREEN_HEIGHT) |y| {
+            if (self.screen[x][y] == 0) {
+                try renderer.fillBlock(x, y, Renderer.Color.black);
+            } else {
+                try renderer.fillBlock(x, y, Renderer.Color.white);
+            }
+        }
+    }
+    try renderer.render();
 }

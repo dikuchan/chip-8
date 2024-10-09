@@ -3,10 +3,11 @@ const sdl = @import("zsdl2");
 
 const Cli = @import("./cli.zig").Cli;
 const Emulator = @import("./Emulator.zig");
-const keypad = @import("./driver/keypad.zig");
 const memory = @import("./memory.zig");
 const Version = @import("./version.zig").Version;
-const Video = @import("./driver/Video.zig");
+
+const Keyboard = @import("./backend/sdl/keyboard.zig").Keyboard;
+const Video = @import("./backend/sdl/video.zig").Video;
 
 pub fn main() !void {
     var buffer: [8192]u8 = undefined;
@@ -22,32 +23,48 @@ pub fn main() !void {
     });
     defer sdl.quit();
 
-    var video = try Video.init();
+    var video = try Video.init(
+        Emulator.SCREEN_WIDTH,
+        Emulator.SCREEN_HEIGHT,
+        10,
+    );
     defer video.deinit();
 
     std.log.debug("using version {s}", .{cli.version.toString()});
+    std.log.debug("running at {d} fps", .{cli.fps});
     if (cli.debug) {
         std.log.debug("debug mode is on", .{});
     }
 
     var emulator = Emulator.init(
         try memory.load_file(cli.file),
-        video,
         .{
             .version = cli.version,
             .debug = cli.debug,
         },
     );
 
+    var keyboard = Keyboard{};
+    var keypad = keyboard.keypad();
+
     loop: while (true) {
-        const keys = keypad.poll() catch |err| {
-            if (err == keypad.KeypadError.Quit) {
-                std.log.info("exiting", .{});
-                break :loop;
+        while (keypad.poll()) |event| {
+            switch (event) {
+                .key => |key| {
+                    if (key.isPressed()) {
+                        emulator.press_key(key.index());
+                    } else if (key.isReleased()) {
+                        emulator.release_key(key.index());
+                    }
+                },
+                .skip => continue,
+                .quit => break :loop,
             }
-            return err;
-        };
-        try emulator.tick(keys);
-        sdl.delay(17);
+        }
+        for (0..10) |_| {
+            try emulator.tick();
+        }
+        emulator.tick_timers();
+        try emulator.display(video.renderer());
     }
 }

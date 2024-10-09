@@ -4,8 +4,9 @@ const logger = std.log.scoped(.memory);
 
 const MEMORY_SIZE = 0x1000;
 
-const PROGRAM_OFFSET = 0x200;
-const FONT_OFFSET = 0x50;
+pub const PROGRAM_OFFSET = 0x200;
+pub const FONT_OFFSET = 0x50;
+
 const FONT_DATA = [_]u8{
     0xF0, 0x90, 0x90, 0x90, 0xF0, // 0
     0x20, 0x60, 0x20, 0x20, 0x70, // 1
