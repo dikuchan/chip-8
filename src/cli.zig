@@ -1,7 +1,7 @@
 const std = @import("std");
 const eql = std.mem.eql;
 
-const Version = @import("./version.zig").Version;
+const Version = @import("./core/version.zig").Version;
 
 const ParserError = error{
     ParseError,
@@ -96,7 +96,7 @@ fn parseVersion(s: []const u8) CliError!Version {
         Version.COSMAC_VIP,
         Version.SUPER_CHIP,
     }) |version| {
-        if (eql(u8, version.toString(), s)) {
+        if (eql(u8, @tagName(version), s)) {
             return version;
         }
     }

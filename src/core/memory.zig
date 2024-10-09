@@ -2,8 +2,7 @@ const std = @import("std");
 
 const logger = std.log.scoped(.memory);
 
-const MEMORY_SIZE = 0x1000;
-
+pub const MEMORY_SIZE = 0x1000;
 pub const PROGRAM_OFFSET = 0x200;
 pub const FONT_OFFSET = 0x50;
 

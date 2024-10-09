@@ -1,21 +1,23 @@
 const std = @import("std");
 const rand = std.crypto.random;
 
-const Memory = @import("./memory.zig").Memory;
 const Stack = @import("./stack.zig").Stack;
 const Version = @import("./version.zig").Version;
-
-const Renderer = @import("./backend/Renderer.zig");
+const Screen = @import("./Screen.zig");
+const Key = @import("./Keypad.zig").Key;
 
 const PROGRAM_OFFSET = @import("./memory.zig").PROGRAM_OFFSET;
 const FONT_OFFSET = @import("./memory.zig").FONT_OFFSET;
+const MEMORY_SIZE = @import("./memory.zig").MEMORY_SIZE;
 
-pub const MEMORY_SIZE = 4096;
-pub const KEYPAD_SIZE = 16;
+const STACK_SIZE = 16;
+const REGISTER_COUNT = 16;
+const KEYPAD_SIZE = 16;
+
 pub const SCREEN_WIDTH = 64;
 pub const SCREEN_HEIGHT = 32;
 
-const logger = std.log.scoped(.emulator);
+const logger = std.log.scoped(.emu);
 
 pub const EmulatorError = error{
     InvalidInstruction,
@@ -34,8 +36,8 @@ const Self = @This();
 
 pc: u16,
 ir: u16,
-vr: [16]u8,
-stack: Stack(16),
+vr: [REGISTER_COUNT]u8,
+stack: Stack(STACK_SIZE),
 
 memory: [MEMORY_SIZE]u8,
 screen: [SCREEN_WIDTH][SCREEN_HEIGHT]u1,
@@ -46,7 +48,7 @@ sound_timer: u8,
 
 config: Config,
 
-pub fn init(memory: Memory, config: Config) Self {
+pub fn init(memory: [MEMORY_SIZE]u8, config: Config) Self {
     var screen: [SCREEN_WIDTH][SCREEN_HEIGHT]u1 = undefined;
     for (0..SCREEN_WIDTH) |i| {
         screen[i] = [_]u1{0} ** SCREEN_HEIGHT;
@@ -54,8 +56,8 @@ pub fn init(memory: Memory, config: Config) Self {
     return .{
         .pc = PROGRAM_OFFSET,
         .ir = 0,
-        .vr = [_]u8{0} ** 16,
-        .stack = Stack(16).init(),
+        .vr = [_]u8{0} ** REGISTER_COUNT,
+        .stack = Stack(STACK_SIZE).init(),
         .memory = memory,
         .screen = screen,
         .keypad = [_]bool{false} ** KEYPAD_SIZE,
@@ -71,7 +73,7 @@ pub fn tick(self: *Self) EmulatorError!void {
     try self.execute(opcode);
 }
 
-pub fn tick_timers(self: *Self) void {
+pub fn hztick(self: *Self) void {
     if (self.delay_timer > 0) {
         self.delay_timer -= 1;
     }
@@ -182,15 +184,15 @@ fn execute_2NNN(self: *Self, pc: u16) !void {
 }
 
 fn execute_3NNN(self: *Self, register: u4, value: u8) void {
-    self.skip_if(self.vr[register] == value);
+    self.skipIf(self.vr[register] == value);
 }
 
 fn execute_4NNN(self: *Self, register: u4, value: u8) void {
-    self.skip_if(self.vr[register] != value);
+    self.skipIf(self.vr[register] != value);
 }
 
 fn execute_5XY0(self: *Self, register_x: u4, register_y: u4) void {
-    self.skip_if(self.vr[register_x] == self.vr[register_y]);
+    self.skipIf(self.vr[register_x] == self.vr[register_y]);
 }
 
 fn execute_6XNN(self: *Self, register: u4, value: u8) void {
@@ -254,7 +256,7 @@ fn execute_8XYE(self: *Self, register_x: u4, register_y: u4) void {
 }
 
 fn execute_9XY0(self: *Self, register_x: u4, register_y: u4) void {
-    self.skip_if(self.vr[register_x] != self.vr[register_y]);
+    self.skipIf(self.vr[register_x] != self.vr[register_y]);
 }
 
 fn execute_ANNN(self: *Self, value: u12) void {
@@ -295,11 +297,11 @@ fn execute_DXYN(self: *Self, register_x: u4, register_y: u4, value: u4) void {
 }
 
 fn execute_EX9E(self: *Self, register_x: u4) !void {
-    self.skip_if(self.keypad[self.vr[register_x]]);
+    self.skipIf(self.keypad[self.vr[register_x]]);
 }
 
 fn execute_EXA1(self: *Self, register_x: u4) !void {
-    self.skip_if(!self.keypad[self.vr[register_x]]);
+    self.skipIf(!self.keypad[self.vr[register_x]]);
 }
 
 fn execute_FX07(self: *Self, register_x: u4) void {
@@ -365,29 +367,29 @@ fn execute_FX65(self: *Self, register_x: u4) void {
     }
 }
 
-fn skip_if(self: *Self, condition: bool) void {
+fn skipIf(self: *Self, condition: bool) void {
     if (condition) {
         self.pc += 2;
     }
 }
 
-pub fn press_key(self: *Self, key: u4) void {
-    self.keypad[key] = true;
+pub fn pressKey(self: *Self, key: Key) void {
+    self.keypad[key.index()] = true;
 }
 
-pub fn release_key(self: *Self, key: u4) void {
-    self.keypad[key] = false;
+pub fn releaseKey(self: *Self, key: Key) void {
+    self.keypad[key.index()] = false;
 }
 
-pub fn display(self: *Self, renderer: Renderer) !void {
+pub fn draw(self: *Self, screen: Screen) !void {
     for (0..SCREEN_WIDTH) |x| {
         for (0..SCREEN_HEIGHT) |y| {
             if (self.screen[x][y] == 0) {
-                try renderer.fillBlock(x, y, Renderer.Color.black);
+                try screen.fillBlock(x, y, Screen.Color.black);
             } else {
-                try renderer.fillBlock(x, y, Renderer.Color.white);
+                try screen.fillBlock(x, y, Screen.Color.white);
             }
         }
     }
-    try renderer.render();
+    try screen.render();
 }

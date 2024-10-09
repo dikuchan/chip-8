@@ -1,13 +1,12 @@
 const std = @import("std");
 const sdl = @import("zsdl2");
 
+const Backend = @import("./backend/sdl.zig").Backend;
+const Screen = @import("./core/Screen.zig");
+const Keypad = @import("./core/Keypad.zig");
 const Cli = @import("./cli.zig").Cli;
-const Emulator = @import("./Emulator.zig");
-const memory = @import("./memory.zig");
-const Version = @import("./version.zig").Version;
-
-const Keyboard = @import("./backend/sdl/keyboard.zig").Keyboard;
-const Video = @import("./backend/sdl/video.zig").Video;
+const Emu = @import("./core/Emu.zig");
+const memory = @import("./core/memory.zig");
 
 pub fn main() !void {
     var buffer: [8192]u8 = undefined;
@@ -17,54 +16,50 @@ pub fn main() !void {
     var cli = try Cli.init(allocator);
     defer cli.deinit(allocator);
 
-    try sdl.init(.{
-        .audio = true,
-        .video = true,
-    });
-    defer sdl.quit();
-
-    var video = try Video.init(
-        Emulator.SCREEN_WIDTH,
-        Emulator.SCREEN_HEIGHT,
-        10,
-    );
-    defer video.deinit();
-
-    std.log.debug("using version {s}", .{cli.version.toString()});
+    std.log.debug("using version {s}", .{@tagName(cli.version)});
     std.log.debug("running at {d} fps", .{cli.fps});
     if (cli.debug) {
         std.log.debug("debug mode is on", .{});
     }
 
-    var emulator = Emulator.init(
+    // TODO: add audio.
+    var backend = try Backend.init(
+        Emu.SCREEN_WIDTH,
+        Emu.SCREEN_HEIGHT,
+        10,
+    );
+    defer backend.deinit();
+
+    var emu = Emu.init(
         try memory.load_file(cli.file),
         .{
             .version = cli.version,
             .debug = cli.debug,
         },
     );
+    runLoop(
+        &emu,
+        backend.screen(),
+        backend.keypad(),
+    ) catch |err| {
+        std.log.err("execution error: {any}", .{err});
+    };
+}
 
-    var keyboard = Keyboard{};
-    var keypad = keyboard.keypad();
-
-    loop: while (true) {
+fn runLoop(emu: *Emu, screen: Screen, keypad: Keypad) !void {
+    while (true) {
         while (keypad.poll()) |event| {
             switch (event) {
-                .key => |key| {
-                    if (key.isPressed()) {
-                        emulator.press_key(key.index());
-                    } else if (key.isReleased()) {
-                        emulator.release_key(key.index());
-                    }
-                },
+                .key_down => |key| emu.pressKey(key),
+                .key_up => |key| emu.releaseKey(key),
                 .skip => continue,
-                .quit => break :loop,
+                .quit => return,
             }
         }
         for (0..10) |_| {
-            try emulator.tick();
+            try emu.tick();
         }
-        emulator.tick_timers();
-        try emulator.display(video.renderer());
+        emu.hztick();
+        try emu.draw(screen);
     }
 }
