@@ -1,4 +1,4 @@
-const sdl = @import("zsdl2");
+//! Keypad interface.
 
 const Self = @This();
 

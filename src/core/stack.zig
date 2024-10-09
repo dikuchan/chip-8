@@ -1,9 +1,6 @@
 const std = @import("std");
 
-pub const StackError = error{
-    Empty,
-    Full,
-};
+pub const StackError = error{ Empty, Full };
 
 pub fn Stack(comptime size: usize) type {
     return struct {

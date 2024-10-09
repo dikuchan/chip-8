@@ -1,10 +1,25 @@
+const std = @import("std");
 const sdl = @import("zsdl2");
 
+const Counter = @import("../core/Counter.zig");
 const Keypad = @import("../core/Keypad.zig");
 const Screen = @import("../core/Screen.zig");
 
 const Event = Keypad.Event;
 const Key = Keypad.Key;
+
+const BLACK_COLOR = sdl.Color{
+    .r = 0x00,
+    .g = 0x00,
+    .b = 0x00,
+    .a = 0x00,
+};
+const WHITE_COLOR = sdl.Color{
+    .r = 0xFF,
+    .g = 0xFF,
+    .b = 0xFF,
+    .a = 0x00,
+};
 
 pub const Backend = struct {
     const Self = @This();
@@ -12,6 +27,7 @@ pub const Backend = struct {
     w: usize,
     h: usize,
     scale: u8,
+    c: u64,
     window: *sdl.Window,
     renderer: *sdl.Renderer,
 
@@ -37,26 +53,23 @@ pub const Backend = struct {
             .w = w,
             .h = h,
             .scale = scale,
+            .c = 0,
             .window = window,
             .renderer = renderer,
         };
     }
 
-    pub fn fillBlock(ptr: *anyopaque, x: usize, y: usize, color: Screen.Color) anyerror!void {
+    pub fn clearScreen(ptr: *anyopaque) anyerror!void {
+        const self: *Self = @ptrCast(@alignCast(ptr));
+        try self.renderer.setDrawColor(BLACK_COLOR);
+        try self.renderer.clear();
+    }
+
+    pub fn fillScreenBlock(ptr: *anyopaque, x: usize, y: usize, color: Screen.Color) anyerror!void {
         const self: *Self = @ptrCast(@alignCast(ptr));
         switch (color) {
-            .black => try self.renderer.setDrawColor(sdl.Color{
-                .r = 0x00,
-                .g = 0x00,
-                .b = 0x00,
-                .a = 0x00,
-            }),
-            .white => try self.renderer.setDrawColor(sdl.Color{
-                .r = 0xFF,
-                .g = 0xFF,
-                .b = 0xFF,
-                .a = 0x00,
-            }),
+            .black => try self.renderer.setDrawColor(BLACK_COLOR),
+            .white => try self.renderer.setDrawColor(WHITE_COLOR),
         }
         try self.renderer.fillRect(sdl.Rect{
             .x = @intCast(x * self.scale),
@@ -66,7 +79,7 @@ pub const Backend = struct {
         });
     }
 
-    pub fn render(ptr: *anyopaque) anyerror!void {
+    pub fn renderScreen(ptr: *anyopaque) anyerror!void {
         const self: *Self = @ptrCast(@alignCast(ptr));
         self.renderer.present();
     }
@@ -74,12 +87,13 @@ pub const Backend = struct {
     pub fn screen(self: *Self) Screen {
         return .{
             .ptr = self,
-            .fillBlockFn = fillBlock,
-            .renderFn = render,
+            .clearFn = clearScreen,
+            .fillBlockFn = fillScreenBlock,
+            .renderFn = renderScreen,
         };
     }
 
-    pub fn poll(_: *anyopaque) ?Event {
+    pub fn pollKeypad(_: *anyopaque) ?Event {
         var event: sdl.Event = undefined;
         if (sdl.pollEvent(&event)) {
             switch (event.type) {
@@ -105,7 +119,25 @@ pub const Backend = struct {
     pub fn keypad(self: *Self) Keypad {
         return .{
             .ptr = self,
-            .pollFn = poll,
+            .pollFn = pollKeypad,
+        };
+    }
+
+    pub fn readCounter(ptr: *anyopaque) u64 {
+        const self: *Self = @ptrCast(@alignCast(ptr));
+        return (sdl.getPerformanceCounter() - self.c) * std.time.ns_per_s / sdl.getPerformanceFrequency();
+    }
+
+    pub fn resetCounter(ptr: *anyopaque) void {
+        const self: *Self = @ptrCast(@alignCast(ptr));
+        self.c = sdl.getPerformanceCounter();
+    }
+
+    pub fn counter(self: *Self) Counter {
+        return .{
+            .ptr = self,
+            .readFn = readCounter,
+            .resetFn = resetCounter,
         };
     }
 

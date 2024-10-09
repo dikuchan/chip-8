@@ -1,10 +1,10 @@
 const std = @import("std");
 const rand = std.crypto.random;
 
+const Keypad = @import("./Keypad.zig");
+const Screen = @import("./Screen.zig");
 const Stack = @import("./stack.zig").Stack;
 const Version = @import("./version.zig").Version;
-const Screen = @import("./Screen.zig");
-const Key = @import("./Keypad.zig").Key;
 
 const PROGRAM_OFFSET = @import("./memory.zig").PROGRAM_OFFSET;
 const FONT_OFFSET = @import("./memory.zig").FONT_OFFSET;
@@ -73,7 +73,7 @@ pub fn tick(self: *Self) EmulatorError!void {
     try self.execute(opcode);
 }
 
-pub fn hztick(self: *Self) void {
+pub fn frameTick(self: *Self) void {
     if (self.delay_timer > 0) {
         self.delay_timer -= 1;
     }
@@ -373,11 +373,11 @@ fn skipIf(self: *Self, condition: bool) void {
     }
 }
 
-pub fn pressKey(self: *Self, key: Key) void {
+pub fn pressKey(self: *Self, key: Keypad.Key) void {
     self.keypad[key.index()] = true;
 }
 
-pub fn releaseKey(self: *Self, key: Key) void {
+pub fn releaseKey(self: *Self, key: Keypad.Key) void {
     self.keypad[key.index()] = false;
 }
 
@@ -391,5 +391,4 @@ pub fn draw(self: *Self, screen: Screen) !void {
             }
         }
     }
-    try screen.render();
 }

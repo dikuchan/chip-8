@@ -73,7 +73,6 @@ pub const Cli = struct {
     file: []const u8,
     debug: bool,
     version: Version,
-    fps: u32,
 
     pub fn init(allocator: std.mem.Allocator) !Cli {
         var parser = try Parser.init(allocator);
@@ -82,7 +81,6 @@ pub const Cli = struct {
             .file = try parser.parseArg(1, null),
             .debug = try parser.parseFlag("--debug", false),
             .version = try parseVersion(try parser.parseOption("--version", null)),
-            .fps = try std.fmt.parseInt(u32, try parser.parseOption("--fps", "120"), 10),
         };
     }
 
