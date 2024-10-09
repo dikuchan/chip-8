@@ -8,92 +8,30 @@ const Screen = @import("../core/Screen.zig");
 const Event = Keypad.Event;
 const Key = Keypad.Key;
 
-const BLACK_COLOR = sdl.Color{
-    .r = 0x00,
-    .g = 0x00,
-    .b = 0x00,
-    .a = 0x00,
+const CounterBackend = struct {
+    started: u64,
+
+    fn init() CounterBackend {
+        return .{ .started = 0 };
+    }
+
+    fn read(ptr: *anyopaque) u64 {
+        const self: *CounterBackend = @ptrCast(@alignCast(ptr));
+        return (sdl.getPerformanceCounter() - self.started) * std.time.ns_per_s / sdl.getPerformanceFrequency();
+    }
+
+    fn reset(ptr: *anyopaque) void {
+        const self: *CounterBackend = @ptrCast(@alignCast(ptr));
+        self.started = sdl.getPerformanceCounter();
+    }
 };
-const WHITE_COLOR = sdl.Color{
-    .r = 0xFF,
-    .g = 0xFF,
-    .b = 0xFF,
-    .a = 0x00,
-};
 
-pub const Backend = struct {
-    const Self = @This();
-
-    w: usize,
-    h: usize,
-    scale: u8,
-    c: u64,
-    window: *sdl.Window,
-    renderer: *sdl.Renderer,
-
-    pub fn init(w: usize, h: usize, scale: u8) anyerror!Self {
-        try sdl.init(.{
-            .audio = true,
-            .video = true,
-        });
-        const window = try sdl.Window.create(
-            "CHIP-8",
-            sdl.Window.pos_undefined,
-            sdl.Window.pos_undefined,
-            @intCast(w * scale),
-            @intCast(h * scale),
-            .{ .opengl = true },
-        );
-        const renderer = try sdl.createRenderer(
-            window,
-            -1,
-            .{ .accelerated = true, .present_vsync = true },
-        );
-        return Self{
-            .w = w,
-            .h = h,
-            .scale = scale,
-            .c = 0,
-            .window = window,
-            .renderer = renderer,
-        };
+const KeypadBackend = struct {
+    fn init() KeypadBackend {
+        return .{};
     }
 
-    pub fn clearScreen(ptr: *anyopaque) anyerror!void {
-        const self: *Self = @ptrCast(@alignCast(ptr));
-        try self.renderer.setDrawColor(BLACK_COLOR);
-        try self.renderer.clear();
-    }
-
-    pub fn fillScreenBlock(ptr: *anyopaque, x: usize, y: usize, color: Screen.Color) anyerror!void {
-        const self: *Self = @ptrCast(@alignCast(ptr));
-        switch (color) {
-            .black => try self.renderer.setDrawColor(BLACK_COLOR),
-            .white => try self.renderer.setDrawColor(WHITE_COLOR),
-        }
-        try self.renderer.fillRect(sdl.Rect{
-            .x = @intCast(x * self.scale),
-            .y = @intCast(y * self.scale),
-            .w = self.scale,
-            .h = self.scale,
-        });
-    }
-
-    pub fn renderScreen(ptr: *anyopaque) anyerror!void {
-        const self: *Self = @ptrCast(@alignCast(ptr));
-        self.renderer.present();
-    }
-
-    pub fn screen(self: *Self) Screen {
-        return .{
-            .ptr = self,
-            .clearFn = clearScreen,
-            .fillBlockFn = fillScreenBlock,
-            .renderFn = renderScreen,
-        };
-    }
-
-    pub fn pollKeypad(_: *anyopaque) ?Event {
+    fn poll(_: *anyopaque) ?Event {
         var event: sdl.Event = undefined;
         if (sdl.pollEvent(&event)) {
             switch (event.type) {
@@ -114,37 +52,6 @@ pub const Backend = struct {
             }
         }
         return null;
-    }
-
-    pub fn keypad(self: *Self) Keypad {
-        return .{
-            .ptr = self,
-            .pollFn = pollKeypad,
-        };
-    }
-
-    pub fn readCounter(ptr: *anyopaque) u64 {
-        const self: *Self = @ptrCast(@alignCast(ptr));
-        return (sdl.getPerformanceCounter() - self.c) * std.time.ns_per_s / sdl.getPerformanceFrequency();
-    }
-
-    pub fn resetCounter(ptr: *anyopaque) void {
-        const self: *Self = @ptrCast(@alignCast(ptr));
-        self.c = sdl.getPerformanceCounter();
-    }
-
-    pub fn counter(self: *Self) Counter {
-        return .{
-            .ptr = self,
-            .readFn = readCounter,
-            .resetFn = resetCounter,
-        };
-    }
-
-    pub fn deinit(self: *Self) void {
-        self.renderer.destroy();
-        self.window.destroy();
-        sdl.quit();
     }
 };
 
@@ -169,3 +76,126 @@ fn keycodeToKey(keycode: sdl.Keycode) ?Key {
         else => null,
     };
 }
+
+const ScreenBackend = struct {
+    w: usize,
+    h: usize,
+    scale: u8,
+    window: *sdl.Window,
+    renderer: *sdl.Renderer,
+
+    fn init(w: usize, h: usize, scale: u8) !ScreenBackend {
+        const window = try sdl.Window.create(
+            "CHIP-8",
+            sdl.Window.pos_undefined,
+            sdl.Window.pos_undefined,
+            @intCast(w * scale),
+            @intCast(h * scale),
+            .{ .opengl = true },
+        );
+        const renderer = try sdl.createRenderer(
+            window,
+            -1,
+            .{ .accelerated = true, .present_vsync = true },
+        );
+        return .{
+            .w = w,
+            .h = h,
+            .scale = scale,
+            .window = window,
+            .renderer = renderer,
+        };
+    }
+
+    fn clear(ptr: *anyopaque) anyerror!void {
+        const self: *ScreenBackend = @ptrCast(@alignCast(ptr));
+        try self.renderer.setDrawColor(BLACK_COLOR);
+        try self.renderer.clear();
+    }
+
+    fn fillBlock(ptr: *anyopaque, x: usize, y: usize, color: Screen.Color) anyerror!void {
+        const self: *ScreenBackend = @ptrCast(@alignCast(ptr));
+        switch (color) {
+            .black => try self.renderer.setDrawColor(BLACK_COLOR),
+            .white => try self.renderer.setDrawColor(WHITE_COLOR),
+        }
+        try self.renderer.fillRect(sdl.Rect{
+            .x = @intCast(x * self.scale),
+            .y = @intCast(y * self.scale),
+            .w = self.scale,
+            .h = self.scale,
+        });
+    }
+
+    fn render(ptr: *anyopaque) anyerror!void {
+        const self: *ScreenBackend = @ptrCast(@alignCast(ptr));
+        self.renderer.present();
+    }
+
+    fn deinit(self: ScreenBackend) void {
+        self.renderer.destroy();
+        self.window.destroy();
+    }
+};
+
+const BLACK_COLOR = sdl.Color{
+    .r = 0x00,
+    .g = 0x00,
+    .b = 0x00,
+    .a = 0x00,
+};
+const WHITE_COLOR = sdl.Color{
+    .r = 0xFF,
+    .g = 0xFF,
+    .b = 0xFF,
+    .a = 0x00,
+};
+
+pub const Backend = struct {
+    const Self = @This();
+
+    counter_backend: CounterBackend,
+    keypad_backend: KeypadBackend,
+    screen_backend: ScreenBackend,
+
+    pub fn init(w: usize, h: usize, scale: u8) anyerror!Self {
+        try sdl.init(.{
+            .audio = true,
+            .video = true,
+        });
+        return Self{
+            .counter_backend = CounterBackend.init(),
+            .keypad_backend = KeypadBackend.init(),
+            .screen_backend = try ScreenBackend.init(w, h, scale),
+        };
+    }
+
+    pub fn counter(self: *Backend) Counter {
+        return .{
+            .ptr = &self.counter_backend,
+            .readFn = CounterBackend.read,
+            .resetFn = CounterBackend.reset,
+        };
+    }
+
+    pub fn keypad(self: *Backend) Keypad {
+        return .{
+            .ptr = &self.keypad_backend,
+            .pollFn = KeypadBackend.poll,
+        };
+    }
+
+    pub fn screen(self: *Backend) Screen {
+        return .{
+            .ptr = &self.screen_backend,
+            .clearFn = ScreenBackend.clear,
+            .fillBlockFn = ScreenBackend.fillBlock,
+            .renderFn = ScreenBackend.render,
+        };
+    }
+
+    pub fn deinit(self: *Self) void {
+        self.screen.deinit();
+        sdl.quit();
+    }
+};
