@@ -1,7 +1,5 @@
 const std = @import("std");
 
-const logger = std.log.scoped(.memory);
-
 pub const MEMORY_SIZE = 0x1000;
 pub const PROGRAM_OFFSET = 0x200;
 pub const FONT_OFFSET = 0x50;
@@ -41,7 +39,7 @@ pub fn load_file(file_path: []const u8) !Memory {
     var file = try std.fs.cwd().openFile(file_path, .{});
     defer file.close();
     const size = try file.readAll(memory[PROGRAM_OFFSET..]);
-    logger.debug("loaded ROM file: {d} bytes", .{size});
+    std.log.debug("loaded ROM file: {d} bytes", .{size});
 
     return memory;
 }

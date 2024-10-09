@@ -14,7 +14,6 @@ const Backend = @import("./backend/sdl.zig").Backend;
 
 const FRAME_PER_S = 60;
 const NS_PER_FRAME = std.time.ns_per_s / FRAME_PER_S;
-const TICK_PER_FRAME = 10;
 
 pub fn main() !void {
     var buffer: [8192]u8 = undefined;
@@ -32,7 +31,7 @@ pub fn main() !void {
     var backend = try Backend.init(
         Emulator.SCREEN_WIDTH,
         Emulator.SCREEN_HEIGHT,
-        10,
+        20,
     );
     defer backend.deinit();
 
@@ -49,33 +48,43 @@ pub fn main() !void {
         backend.keypad(),
         backend.screen(),
         backend.sound(),
+        cli.debug,
     ) catch |err| {
         std.log.err("execution error: {any}", .{err});
     };
 }
 
-fn runLoop(e: *Emulator, counter: Counter, keypad: Keypad, screen: Screen, sound: Sound) !void {
+fn runLoop(e: *Emulator, counter: Counter, keypad: Keypad, screen: Screen, sound: Sound, debug: bool) !void {
+    try screen.clear();
     while (true) {
         counter.reset();
-        try screen.clear();
 
         while (keypad.poll()) |event| {
             switch (event) {
                 .key_down => |key| e.pressKey(key),
                 .key_up => |key| e.releaseKey(key),
-                .skip => continue,
                 .quit => return,
+                else => continue,
             }
         }
 
-        for (0..TICK_PER_FRAME) |_| {
-            try e.tick();
-        }
-        e.frameTick();
-
+        const opcode = try e.tick();
         try e.draw(screen);
+        if (debug) {
+            while (true) {
+                if (keypad.poll()) |event| {
+                    switch (event) {
+                        .debug => break,
+                        .quit => return,
+                        else => continue,
+                    }
+                } else {
+                    continue;
+                }
+            }
+            try screen.showOpcode(opcode);
+        }
         try screen.render();
-
         try e.beep(sound);
 
         const elapsed = counter.read();

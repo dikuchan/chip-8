@@ -18,8 +18,6 @@ const KEYPAD_SIZE = 16;
 pub const SCREEN_WIDTH = 64;
 pub const SCREEN_HEIGHT = 32;
 
-const logger = std.log.scoped(.emu);
-
 pub const EmulatorError = error{
     InvalidInstruction,
     UnsupportedInstruction,
@@ -68,19 +66,16 @@ pub fn init(memory: [MEMORY_SIZE]u8, config: Config) Self {
     };
 }
 
-pub fn tick(self: *Self) EmulatorError!void {
+pub fn tick(self: *Self) EmulatorError!u16 {
     const opcode = self.fetch();
-    logger.debug("fetched opcode: {X:0>4}", .{opcode});
     try self.execute(opcode);
-}
-
-pub fn frameTick(self: *Self) void {
     if (self.delay_timer > 0) {
         self.delay_timer -= 1;
     }
     if (self.sound_timer > 0) {
         self.sound_timer -= 1;
     }
+    return opcode;
 }
 
 fn fetch(self: *Self) u16 {

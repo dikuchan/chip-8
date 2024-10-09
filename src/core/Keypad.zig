@@ -11,6 +11,7 @@ pub fn poll(self: Self) ?Event {
 }
 
 pub const Event = union(enum) {
+    debug,
     key_down: Key,
     key_up: Key,
     skip,

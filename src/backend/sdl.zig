@@ -1,5 +1,6 @@
 const std = @import("std");
 const sdl = @import("zsdl2");
+const sdl_ttf = @import("zsdl2_ttf");
 
 const Counter = @import("../core/Counter.zig");
 const Keypad = @import("../core/Keypad.zig");
@@ -8,6 +9,10 @@ const Sound = @import("../core/Sound.zig");
 
 const Event = Keypad.Event;
 const Key = Keypad.Key;
+
+const FONT_PATH = "./data/fonts/Ubuntu-Regular.ttf";
+const FONT_SIZE = 24;
+const OPCODE_TEXT_LENGTH = 4;
 
 const CounterBackend = struct {
     started: u64,
@@ -38,6 +43,9 @@ const KeypadBackend = struct {
             switch (event.type) {
                 .quit => return Event.quit,
                 .keydown => {
+                    if (event.key.keysym.sym == .space) {
+                        return .debug;
+                    }
                     if (keycodeToKey(event.key.keysym.sym)) |key| {
                         return .{ .key_down = key };
                     }
@@ -84,6 +92,7 @@ const ScreenBackend = struct {
     scale: u8,
     window: *sdl.Window,
     renderer: *sdl.Renderer,
+    font: *sdl_ttf.Font,
 
     fn init(w: usize, h: usize, scale: u8) !ScreenBackend {
         const window = try sdl.Window.create(
@@ -99,12 +108,14 @@ const ScreenBackend = struct {
             -1,
             .{ .accelerated = true, .present_vsync = true },
         );
+        const font = try sdl_ttf.Font.open(FONT_PATH, FONT_SIZE);
         return .{
             .w = w,
             .h = h,
             .scale = scale,
             .window = window,
             .renderer = renderer,
+            .font = font,
         };
     }
 
@@ -128,12 +139,34 @@ const ScreenBackend = struct {
         });
     }
 
+    pub fn showOpcode(ptr: *anyopaque, opcode: u16) anyerror!void {
+        const self: *ScreenBackend = @ptrCast(@alignCast(ptr));
+
+        var opcodeBuffer: [OPCODE_TEXT_LENGTH]u8 = undefined;
+        const opcodeString = try std.fmt.bufPrint(&opcodeBuffer, "{X:0>4}", .{opcode});
+        var text: [OPCODE_TEXT_LENGTH:0]u8 = undefined;
+        text[OPCODE_TEXT_LENGTH] = 0;
+        @memcpy(&text, opcodeString);
+
+        const surface = try self.font.renderTextShaded(&text, GREEN_COLOR, BLACK_COLOR);
+        defer surface.free();
+        const texture = try self.renderer.createTextureFromSurface(surface);
+        defer texture.destroy();
+        try sdl.renderCopy(self.renderer, texture, null, &sdl.Rect{
+            .x = 0,
+            .y = 0,
+            .w = surface.w,
+            .h = surface.h,
+        });
+    }
+
     fn render(ptr: *anyopaque) anyerror!void {
         const self: *ScreenBackend = @ptrCast(@alignCast(ptr));
         self.renderer.present();
     }
 
     fn deinit(self: ScreenBackend) void {
+        self.font.close();
         self.renderer.destroy();
         self.window.destroy();
     }
@@ -149,6 +182,12 @@ const WHITE_COLOR = sdl.Color{
     .r = 0xFF,
     .g = 0xFF,
     .b = 0xFF,
+    .a = 0x00,
+};
+const GREEN_COLOR = sdl.Color{
+    .r = 0x00,
+    .g = 0x80,
+    .b = 0x00,
     .a = 0x00,
 };
 
@@ -209,6 +248,7 @@ pub const Backend = struct {
             .audio = true,
             .video = true,
         });
+        try sdl_ttf.init();
         return Self{
             .counter_backend = CounterBackend.init(),
             .keypad_backend = KeypadBackend.init(),
@@ -237,6 +277,7 @@ pub const Backend = struct {
             .ptr = &self.screen_backend,
             .clearFn = ScreenBackend.clear,
             .fillBlockFn = ScreenBackend.fillBlock,
+            .showOpcodeFn = ScreenBackend.showOpcode,
             .renderFn = ScreenBackend.render,
         };
     }
@@ -252,6 +293,7 @@ pub const Backend = struct {
     pub fn deinit(self: *Self) void {
         self.sound_backend.deinit();
         self.screen_backend.deinit();
+        sdl_ttf.quit();
         sdl.quit();
     }
 };

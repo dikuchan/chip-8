@@ -3,9 +3,10 @@
 ### TODO
 
 - [x] Add audio
+- [x] Debug mode
 - [ ] Add tests
-- [ ] Debug mode
 - [ ] More logs
+- [ ] Proper error handling
 - [ ] (optional) More configuration options
 - [ ] (optional) More ROMs
 - [ ] (optional) Try another backend
